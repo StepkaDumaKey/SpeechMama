@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Логопедическое заключение</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Конструктор заключений</p>
+          <h1>Логопедическая диагностика</h1>
+        </div>
+        <div class="top-actions">
+          <select id="draftSelect" aria-label="Черновики"></select>
+          <button id="loadDraftBtn" class="secondary">Открыть</button>
+          <button id="deleteDraftBtn" class="ghost">Удалить</button>
+          <button id="saveDraftBtn" class="primary">Сохранить</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="editor-pane" aria-label="Редактор заключения">
+          <div class="panel identity-panel">
+            <div class="panel-title-row">
+              <h2>Карточка</h2>
+              <select id="profile" aria-label="Профиль заключения"></select>
+            </div>
+            <div class="form-grid">
+              <label>
+                <span>ФИО ребенка</span>
+                <input id="childName" autocomplete="off" placeholder="Иванова Мария" />
+              </label>
+              <label>
+                <span>Дата рождения</span>
+                <input id="birthDate" type="date" />
+              </label>
+              <label>
+                <span>Дата диагностики</span>
+                <input id="diagnosisDate" type="date" />
+              </label>
+              <label>
+                <span>Пол</span>
+                <select id="gender">
+                  <option value="male">мальчик</option>
+                  <option value="female">девочка</option>
+                </select>
+              </label>
+              <label class="wide">
+                <span>Повод обращения</span>
+                <input id="reason" placeholder="недостаточного уровня развития речи" />
+              </label>
+              <label class="wide">
+                <span>Анамнез</span>
+                <textarea id="anamnesis" rows="4"></textarea>
+              </label>
+              <label class="wide">
+                <span>Специалист</span>
+                <input id="specialist" value="Потапова Ирина Александровна" />
+              </label>
+            </div>
+          </div>
+
+          <div class="panel assistant-panel">
+            <div class="panel-title-row">
+              <h2>Помощник</h2>
+              <div class="compact-actions">
+                <button id="checkBtn" class="secondary">Проверить</button>
+                <button id="polishBtn" class="secondary">Вычитать</button>
+              </div>
+            </div>
+            <div id="assistantOutput" class="assistant-output"></div>
+          </div>
+
+          <div id="sections" class="sections"></div>
+
+          <div class="panel">
+            <div class="panel-title-row">
+              <h2>Заключение</h2>
+              <select id="conclusionPreset" aria-label="Вариант заключения"></select>
+            </div>
+            <textarea id="conclusion" rows="3"></textarea>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title-row">
+              <h2>Рекомендации</h2>
+              <button id="addRecommendationBtn" class="secondary">Добавить</button>
+            </div>
+            <div id="recommendations" class="recommendations"></div>
+            <div class="inline-add">
+              <input id="customRecommendation" placeholder="Новая рекомендация" />
+            </div>
+          </div>
+        </section>
+
+        <aside class="preview-pane" aria-label="Предпросмотр заключения">
+          <div class="preview-toolbar">
+            <div>
+              <p class="eyebrow">Предпросмотр</p>
+              <h2>Готовый текст</h2>
+            </div>
+            <div class="compact-actions">
+              <button id="copyBtn" class="secondary">Копировать</button>
+              <button id="docxBtn" class="primary">DOCX</button>
+              <button id="pdfBtn" class="primary">PDF</button>
+            </div>
+          </div>
+          <article id="documentPreview" class="document-page"></article>
+        </aside>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
