@@ -13,6 +13,7 @@ Netlify publishes only the `public` folder:
 The Groq proxy runs as a Netlify Function:
 
 - `netlify/functions/suggest.js`
+- `netlify/functions/summary.js`
 
 Do not upload `.env` to Netlify. Add the key in Netlify's environment variables UI.
 
@@ -39,4 +40,4 @@ Use Git deploy:
 6. Add the environment variables.
 7. Deploy.
 
-After deploy, the app calls `/api/suggest`, and Netlify rewrites it to the serverless function.
+After deploy, the app calls `/api/suggest` and `/api/summary`, and Netlify rewrites them to the serverless functions.

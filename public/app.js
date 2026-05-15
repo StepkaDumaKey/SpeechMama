@@ -140,6 +140,71 @@ const conclusionOptions = [
     id: "stutter",
     label: "Логоневроз",
     text: "Логоневроз, заикание клонического типа."
+  },
+  {
+    id: "dyslalia",
+    label: "Дислалия",
+    text: "Дислалия. Нарушение звукопроизношения."
+  },
+  {
+    id: "dysarthria",
+    label: "Дизартрия",
+    text: "Дизартрия. Нарушение произносительной стороны речи."
+  },
+  {
+    id: "phonetic_phonemic",
+    label: "ФФНР",
+    text: "Фонетико-фонематическое недоразвитие речи."
+  },
+  {
+    id: "alalia",
+    label: "Алалия",
+    text: "Алалия. Системное недоразвитие речи."
+  },
+  {
+    id: "motor_alalia",
+    label: "Моторная алалия",
+    text: "Моторная алалия. Системное недоразвитие экспрессивной речи."
+  },
+  {
+    id: "sensory_alalia",
+    label: "Сенсорная алалия",
+    text: "Сенсорная алалия. Нарушение понимания обращенной речи."
+  },
+  {
+    id: "rhinolalia",
+    label: "Ринолалия",
+    text: "Ринолалия. Нарушение тембра голоса и звукопроизношения."
+  },
+  {
+    id: "tachylalia",
+    label: "Тахилалия",
+    text: "Тахилалия. Нарушение темпо-ритмической организации речи."
+  },
+  {
+    id: "bradylalia",
+    label: "Брадилалия",
+    text: "Брадилалия. Нарушение темпо-ритмической организации речи."
+  },
+  {
+    id: "aphasia",
+    label: "Афазия",
+    text: "Афазия. Системное нарушение речи."
+  },
+  {
+    id: "dysgraphia_risk",
+    label: "Риск дисграфии",
+    text: "Предпосылки нарушения письменной речи."
+  },
+  {
+    id: "speech_delay",
+    label: "ЗРР",
+    text: "Задержка речевого развития."
+  },
+  {
+    id: "psychospeech_delay",
+    label: "ЗПРР",
+    text: "Задержка психоречевого развития."
   }
 ];
 
@@ -354,17 +419,10 @@ function renderConclusionPresets() {
 function renderSections() {
   $("#sections").innerHTML = sectionDefs
     .map((section) => {
-      const options = section.options
-        .map((option, index) => `<option value="${index}">${escapeHtml(option.slice(0, 82))}</option>`)
-        .join("");
-
       return `
         <section class="section-card" data-section="${section.id}">
           <div class="section-header">
             <h3>${escapeHtml(section.title)}</h3>
-            <select id="option-${section.id}" aria-label="${escapeHtml(section.title)}">${options}</select>
-            <button class="secondary small" data-action="insert-template" data-section="${section.id}">Вставить</button>
-            <button class="secondary small" data-action="suggest" data-section="${section.id}">Подсказать</button>
           </div>
           <div class="section-body">
             <textarea id="section-${section.id}" rows="4"></textarea>
@@ -407,6 +465,7 @@ function bindEvents() {
   });
 
   $("#addRecommendationBtn").addEventListener("click", addCustomRecommendation);
+  $("#summaryBtn").addEventListener("click", suggestConclusionSummary);
   $("#saveDraftBtn").addEventListener("click", saveDraft);
   $("#loadDraftBtn").addEventListener("click", loadSelectedDraft);
   $("#deleteDraftBtn").addEventListener("click", deleteSelectedDraft);
@@ -861,8 +920,7 @@ function applyProfile(profileId) {
 
 function insertTemplate(sectionId) {
   const def = sectionDefs.find((item) => item.id === sectionId);
-  const optionIndex = Number($(`#option-${sectionId}`).value);
-  const text = def.options[optionIndex] || "";
+  const text = def.options[0] || "";
   const textarea = $(`#section-${sectionId}`);
   textarea.value = textarea.value.trim() ? `${textarea.value.trim()}\n${text}` : text;
   textarea.focus();
@@ -967,8 +1025,9 @@ function renderDocumentHtml(data) {
     ? `На момент обследования логопедом-дефектологом ребенку ${escapeHtml(age)}.`
     : "";
 
-  const reasonLine = data.reason
-    ? `${data.gender === "female" ? "Родители обратились" : "Родители обратились"} по поводу ${escapeHtml(data.reason)}.`
+  const reportReason = formatReasonForReport(data.reason);
+  const reasonLine = reportReason
+    ? `${data.gender === "female" ? "Родители обратились" : "Родители обратились"} по поводу ${escapeHtml(reportReason)}.`
     : "";
 
   const sectionParagraphs = sectionDefs
@@ -997,6 +1056,98 @@ function renderDocumentHtml(data) {
     ${recommendations ? `<p class="section-lead">Рекомендации:</p>${recommendations}` : ""}
     <p class="signature">Логопед-дефектолог: ${escapeHtml(data.specialist || "")}</p>
   `;
+}
+
+function formatReasonForReport(reason) {
+  const cleaned = String(reason || "")
+    .replace(/^по\s+поводу\s+/i, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.!?]+$/g, "")
+    .trim();
+  if (!cleaned) return "";
+
+  const [head, ...tailParts] = cleaned.split(",").map((part) => part.trim()).filter(Boolean);
+  const headGenitive = phraseToGenitive(head);
+  const tail = tailParts.map((part) => dependentPhraseToGenitive(part)).filter(Boolean);
+  return [headGenitive, ...tail].join(", ");
+}
+
+function phraseToGenitive(phrase) {
+  const normalized = phrase.toLowerCase().replace(/ё/g, "е").trim();
+  const exact = {
+    "алалия": "алалии",
+    "моторная алалия": "моторной алалии",
+    "сенсорная алалия": "сенсорной алалии",
+    "дислалия": "дислалии",
+    "дизартрия": "дизартрии",
+    "ринолалия": "ринолалии",
+    "дисграфия": "дисграфии",
+    "дислексия": "дислексии",
+    "афазия": "афазии",
+    "тахилалия": "тахилалии",
+    "брадилалия": "брадилалии",
+    "заикание": "заикания",
+    "логоневроз": "логоневроза",
+    "нарушение звукопроизношения": "нарушения звукопроизношения",
+    "нарушение речи": "нарушения речи",
+    "недостаточный уровень развития речи": "недостаточного уровня развития речи",
+    "сложность коммуникации у ребенка": "сложности коммуникации у ребенка",
+    "сложности коммуникации у ребенка": "сложностей коммуникации у ребенка",
+    "отсутствие фразовой речи": "отсутствия фразовой речи",
+    "трудности понимания обращенной речи": "трудностей понимания обращенной речи",
+    "задержка речевого развития": "задержки речевого развития",
+    "задержка психоречевого развития": "задержки психоречевого развития",
+    "онр": "ОНР",
+    "ффнр": "ФФНР",
+    "зрр": "ЗРР",
+    "зпрр": "ЗПРР",
+    "рас": "РАС"
+  };
+  if (exact[normalized]) return preserveCapitalization(phrase, exact[normalized]);
+
+  return phrase
+    .split(" ")
+    .map((word, index, words) => wordToGenitive(word, index === words.length - 1))
+    .join(" ");
+}
+
+function wordToGenitive(word, isLast) {
+  if (/^[А-ЯЁA-Z]{2,}$/.test(word)) return word;
+  const lower = word.toLowerCase();
+  let transformed = word;
+
+  if (/(ая)$/i.test(word)) transformed = word.replace(/ая$/i, "ой");
+  else if (/(яя)$/i.test(word)) transformed = word.replace(/яя$/i, "ей");
+  else if (/(ый|ой)$/i.test(word)) transformed = word.replace(/(ый|ой)$/i, "ого");
+  else if (/ий$/i.test(word)) transformed = word.replace(/ий$/i, "его");
+  else if (isLast && /ие$/i.test(word)) transformed = word.replace(/ие$/i, "ия");
+  else if (isLast && /ия$/i.test(word)) transformed = word.replace(/ия$/i, "ии");
+  else if (isLast && /а$/i.test(word)) transformed = word.replace(/а$/i, "ы");
+  else if (isLast && /я$/i.test(word)) transformed = word.replace(/я$/i, "и");
+  else if (isLast && /ь$/i.test(word)) transformed = word.replace(/ь$/i, "и");
+  else if (isLast && /(з|с|ц|ч|ш|щ|ж)$/i.test(word)) transformed = `${word}а`;
+
+  if (lower === "речи" || lower === "коммуникации") return word;
+  return transformed;
+}
+
+function dependentPhraseToGenitive(phrase) {
+  return phrase
+    .split(" ")
+    .map((word, index) => {
+      if (index > 0) return word;
+      if (/аяся$/i.test(word)) return word.replace(/аяся$/i, "ейся");
+      if (/ая$/i.test(word)) return word.replace(/ая$/i, "ой");
+      if (/яя$/i.test(word)) return word.replace(/яя$/i, "ей");
+      if (/ый$/i.test(word)) return word.replace(/ый$/i, "ого");
+      if (/ий$/i.test(word)) return word.replace(/ий$/i, "его");
+      return word;
+    })
+    .join(" ");
+}
+
+function preserveCapitalization(original, transformed) {
+  return /^[А-ЯЁA-Z]/.test(original) ? transformed.charAt(0).toUpperCase() + transformed.slice(1) : transformed;
 }
 
 function buildPlainText(data) {
@@ -1078,6 +1229,50 @@ async function copyDocumentText() {
   const text = buildPlainText(collectForm());
   await navigator.clipboard.writeText(text);
   toast("Текст скопирован");
+}
+
+async function suggestConclusionSummary() {
+  const button = $("#summaryBtn");
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Думаю...";
+
+  try {
+    const response = await fetch("/api/summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        context: collectAiContext(),
+        options: conclusionOptions.map(({ id, label, text }) => ({ id, label, text }))
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.conclusion) {
+      throw new Error(payload.error || "Не удалось получить резюме");
+    }
+
+    $("#conclusion").value = payload.conclusion;
+    $("#conclusionPreset").value = payload.id || "";
+    updatePreview();
+    updateAssistant([
+      {
+        type: "info",
+        text: payload.reason
+          ? `ИИ резюме: ${payload.reason}`
+          : "ИИ предложил наиболее подходящий вариант заключения. Проверьте формулировку перед экспортом."
+      }
+    ]);
+  } catch (error) {
+    updateAssistant([
+      {
+        type: "warn",
+        text: "ИИ резюме не сработало. Можно выбрать вариант заключения вручную."
+      }
+    ]);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
 }
 
 function runChecks() {
@@ -1258,7 +1453,8 @@ function documentXml(data) {
   if (data.diagnosisDate) paragraphs.push(paragraph(`Дата диагностики: ${formatDate(data.diagnosisDate)} г.`));
   const age = calculateAgeText(data.birthDate, data.diagnosisDate);
   if (age) paragraphs.push(paragraph(`На момент обследования логопедом-дефектологом ребенку ${age}.`));
-  if (data.reason) paragraphs.push(paragraph(`Родители обратились по поводу ${data.reason}.`));
+  const reportReason = formatReasonForReport(data.reason);
+  if (reportReason) paragraphs.push(paragraph(`Родители обратились по поводу ${reportReason}.`));
   if (data.anamnesis) splitParagraphs(data.anamnesis).forEach((text) => paragraphs.push(paragraph(text)));
   paragraphs.push(paragraph(""));
   paragraphs.push(paragraph("В ходе обследования выявлено:", { bold: true }));

@@ -50,7 +50,7 @@
               </label>
               <label class="wide">
                 <span>Повод обращения</span>
-                <input id="reason" placeholder="недостаточного уровня развития речи" />
+                <textarea id="reason" rows="2" placeholder="алалия, наблюдаемая в раннем возрасте"></textarea>
               </label>
               <label class="wide">
                 <span>Анамнез</span>
@@ -79,7 +79,10 @@
           <div class="panel">
             <div class="panel-title-row">
               <h2>Заключение</h2>
-              <select id="conclusionPreset" aria-label="Вариант заключения"></select>
+              <div class="conclusion-actions">
+                <select id="conclusionPreset" aria-label="Вариант заключения"></select>
+                <button id="summaryBtn" class="secondary">ИИ резюме</button>
+              </div>
             </div>
             <textarea id="conclusion" rows="3"></textarea>
           </div>

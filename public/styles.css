@@ -287,6 +287,17 @@ h3 {
   max-width: 280px;
 }
 
+.conclusion-actions {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 8px;
+  width: min(560px, 100%);
+}
+
+.conclusion-actions select {
+  max-width: none;
+}
+
 .identity-panel {
   border-top: 4px solid var(--accent);
 }
@@ -346,9 +357,7 @@ h3 {
 }
 
 .section-header {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.1fr) auto auto;
-  gap: 8px;
+  display: flex;
   align-items: center;
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
@@ -517,9 +526,14 @@ h3 {
 
   .top-actions select,
   .panel-title-row select,
+  .conclusion-actions,
   .compact-actions button {
     width: 100%;
     max-width: none;
+  }
+
+  .conclusion-actions {
+    grid-template-columns: 1fr;
   }
 
   .workspace {
