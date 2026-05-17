@@ -455,6 +455,16 @@ h3 {
   font-weight: 700;
 }
 
+.template-preview-header {
+  margin: -26px -34px 24px;
+}
+
+.template-preview-header img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .document-page .subtitle {
   margin: 0 0 22px;
   text-align: center;

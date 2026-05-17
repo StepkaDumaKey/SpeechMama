@@ -280,6 +280,7 @@ let smartSuggestionState = {
 };
 
 const AI_SUGGESTION_DELAY_MS = 450;
+const AI_FALLBACK_SCORE_THRESHOLD = 90;
 const aiSuggestionTimers = new Map();
 const aiSuggestionControllers = new Map();
 let aiSuggestionRequestId = 0;
@@ -555,7 +556,11 @@ function updateSmartSuggestion(field) {
     hideSmartSuggestion(field);
   }
 
-  scheduleAiSuggestion(field, result);
+  if (field.value.trim() && (!result || result.score < AI_FALLBACK_SCORE_THRESHOLD)) {
+    scheduleAiSuggestion(field, result);
+  } else {
+    cancelAiSuggestion(field);
+  }
 }
 
 function applySmartSuggestion(field, result) {
@@ -1041,6 +1046,7 @@ function renderDocumentHtml(data) {
     : "";
 
   return `
+    ${renderTemplatePreviewHeader()}
     <h2>Заключение по результатам логопедической диагностики</h2>
     <p class="subtitle">${nameLine}</p>
     ${data.diagnosisDate ? `<p>Дата диагностики: ${escapeHtml(formatDate(data.diagnosisDate))} г.</p>` : ""}
@@ -1056,6 +1062,24 @@ function renderDocumentHtml(data) {
     ${recommendations ? `<p class="section-lead">Рекомендации:</p>${recommendations}` : ""}
     <p class="signature">Логопед-дефектолог: ${escapeHtml(data.specialist || "")}</p>
   `;
+}
+
+function renderTemplatePreviewHeader() {
+  const imageUrl = getTemplateHeaderImageDataUrl();
+  return imageUrl ? `<div class="template-preview-header"><img src="${imageUrl}" alt="" /></div>` : "";
+}
+
+function getTemplateHeaderImageDataUrl() {
+  const rels = templateTextFile("word/_rels/header2.xml.rels");
+  const target = rels.match(/Target="([^"]+)"/)?.[1];
+  const imagePath = target ? `word/${target.replace(/^\.\.\//, "")}` : "word/media/image2.jpeg";
+  const b64 = getTemplateBase64(imagePath) || getTemplateBase64("word/media/image2.jpeg");
+  if (!b64) return "";
+
+  const extension = imagePath.split(".").pop()?.toLowerCase();
+  const mime =
+    extension === "png" ? "image/png" : extension === "jpg" || extension === "jpeg" ? "image/jpeg" : "image/png";
+  return `data:${mime};base64,${b64}`;
 }
 
 function formatReasonForReport(reason) {
@@ -1158,6 +1182,12 @@ function buildPlainText(data) {
 
 function saveDraft() {
   const data = collectForm();
+  const key = saveDraftData(data);
+  refreshDraftSelect(key);
+  toast("Черновик сохранен");
+}
+
+function saveDraftData(data) {
   const drafts = readDrafts();
   const key = makeDraftKey(data);
   drafts[key] = {
@@ -1165,8 +1195,7 @@ function saveDraft() {
     savedAt: new Date().toISOString()
   };
   writeDrafts(drafts);
-  refreshDraftSelect(key);
-  toast("Черновик сохранен");
+  return key;
 }
 
 function loadSelectedDraft() {
@@ -1419,6 +1448,8 @@ function escapeXml(value) {
 function exportDocx() {
   const data = collectForm();
   const docxBlob = createDocxBlob(data);
+  saveDraftData(data);
+  refreshDraftSelect(makeDraftKey(data));
   const link = document.createElement("a");
   link.href = URL.createObjectURL(docxBlob);
   link.download = `${getFileBaseName(data)}.docx`;
@@ -1430,16 +1461,19 @@ function exportDocx() {
 }
 
 function createDocxBlob(data) {
-  const files = {
-    "[Content_Types].xml": contentTypesXml(),
-    "_rels/.rels": packageRelsXml(),
-    "docProps/core.xml": coreXml(data),
-    "docProps/app.xml": appXml(),
-    "word/_rels/document.xml.rels": documentRelsXml(),
-    "word/styles.xml": stylesXml(),
-    "word/numbering.xml": numberingXml(),
-    "word/document.xml": documentXml(data)
-  };
+  const files = hasDocxTemplate()
+    ? decodeTemplateFiles()
+    : {
+        "[Content_Types].xml": contentTypesXml(),
+        "_rels/.rels": packageRelsXml(),
+        "word/_rels/document.xml.rels": documentRelsXml(),
+        "word/styles.xml": stylesXml()
+      };
+
+  files["docProps/core.xml"] = coreXml(data);
+  files["docProps/app.xml"] = appXml();
+  files["word/document.xml"] = documentXml(data);
+  ensureNumberingPart(files);
 
   return zipFiles(files, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 }
@@ -1479,10 +1513,14 @@ function documentXml(data) {
   paragraphs.push(paragraph(""));
   paragraphs.push(paragraph(`Логопед-дефектолог:   ${data.specialist || ""}`));
 
+  const bodyContent = paragraphs.join("\n");
+  const templateDocument = documentXmlFromTemplate(bodyContent);
+  if (templateDocument) return templateDocument;
+
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 wp14">
   <w:body>
-    ${paragraphs.join("\n")}
+    ${bodyContent}
     <w:sectPr>
       <w:pgSz w:w="11906" w:h="16838"/>
       <w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/>
@@ -1491,6 +1529,72 @@ function documentXml(data) {
     </w:sectPr>
   </w:body>
 </w:document>`;
+}
+
+function documentXmlFromTemplate(bodyContent) {
+  const templateXml = templateTextFile("word/document.xml");
+  if (!templateXml) return "";
+
+  const bodyOpen = "<w:body>";
+  const bodyStart = templateXml.indexOf(bodyOpen);
+  const sectPrMatch = templateXml.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/);
+  if (bodyStart === -1 || !sectPrMatch) return "";
+
+  const prefix = templateXml.slice(0, bodyStart + bodyOpen.length);
+  return `${prefix}${bodyContent}\n${sectPrMatch[0]}</w:body></w:document>`;
+}
+
+function hasDocxTemplate() {
+  return Boolean(getTemplateBase64("word/document.xml"));
+}
+
+function getTemplateBase64(name) {
+  return typeof window !== "undefined" && window.TEMPLATE_DOCX_FILES ? window.TEMPLATE_DOCX_FILES[name] : "";
+}
+
+function decodeTemplateFiles() {
+  return Object.fromEntries(
+    Object.entries(window.TEMPLATE_DOCX_FILES || {}).map(([name, b64]) => [name, base64ToBytes(b64)])
+  );
+}
+
+function templateTextFile(name) {
+  const b64 = getTemplateBase64(name);
+  return b64 ? new TextDecoder().decode(base64ToBytes(b64)) : "";
+}
+
+function base64ToBytes(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function ensureNumberingPart(files) {
+  files["word/numbering.xml"] = files["word/numbering.xml"] || numberingXml();
+  files["[Content_Types].xml"] = ensureXmlBeforeClose(
+    fileToText(files["[Content_Types].xml"]),
+    "</Types>",
+    '<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>',
+    "/word/numbering.xml"
+  );
+  files["word/_rels/document.xml.rels"] = ensureXmlBeforeClose(
+    fileToText(files["word/_rels/document.xml.rels"] || documentRelsXml()),
+    "</Relationships>",
+    '<Relationship Id="rId99" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>',
+    "numbering.xml"
+  );
+}
+
+function ensureXmlBeforeClose(xml, closeTag, insertion, marker) {
+  if (!xml || xml.includes(marker)) return xml;
+  return xml.replace(closeTag, `${insertion}${closeTag}`);
+}
+
+function fileToText(file) {
+  return file instanceof Uint8Array ? new TextDecoder().decode(file) : String(file || "");
 }
 
 function splitParagraphs(text) {
@@ -1628,7 +1732,7 @@ function zipFiles(files, mimeType) {
 
   Object.entries(files).forEach(([name, content]) => {
     const nameBytes = encoder.encode(name);
-    const data = encoder.encode(content);
+    const data = normalizeZipData(content, encoder);
     const crc = crc32(data);
     const localHeader = localFileHeader(nameBytes, data, crc);
     chunks.push(localHeader, data);
@@ -1647,6 +1751,12 @@ function zipFiles(files, mimeType) {
   chunks.push(endOfCentralDirectory(entries.length, centralSize, centralOffset));
 
   return new Blob(chunks, { type: mimeType });
+}
+
+function normalizeZipData(content, encoder) {
+  if (content instanceof Uint8Array) return content;
+  if (content instanceof ArrayBuffer) return new Uint8Array(content);
+  return encoder.encode(content);
 }
 
 function byteLength(chunk) {

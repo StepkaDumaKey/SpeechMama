@@ -24,6 +24,11 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && request.url === "/api/summary") {
+      await handleSummary(request, response);
+      return;
+    }
+
     if (request.method === "GET") {
       serveStatic(request, response);
       return;
@@ -88,6 +93,84 @@ async function handleSuggest(request, response) {
     suggestion,
     source: suggestion ? `Groq: ${groqModel}` : ""
   });
+}
+
+async function handleSummary(request, response) {
+  if (!groqApiKey) {
+    sendJson(response, 503, { error: "Groq key is not configured" });
+    return;
+  }
+
+  const body = await readJson(request, 160_000);
+  const context = sanitizeContext(body.context || {});
+  const options = Array.isArray(body.options)
+    ? body.options.slice(0, 40).map((item) => ({
+        id: sanitizeText(item.id || "", 80),
+        label: sanitizeText(item.label || "", 120),
+        text: sanitizeText(item.text || "", 500)
+      }))
+    : [];
+
+  const groqResponse = await fetch("https://api.groq.com/openai/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${groqApiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: groqModel,
+      input: buildSummaryPrompt(context, options),
+      temperature: 0.1,
+      max_output_tokens: 220,
+      reasoning: { effort: "low" }
+    })
+  });
+
+  const result = await groqResponse.json().catch(() => ({}));
+  if (!groqResponse.ok) {
+    console.error("Groq summary error:", result);
+    sendJson(response, 502, { error: "Groq error" });
+    return;
+  }
+
+  const text = extractResponseText(result);
+  const parsed = parseSummaryResponse(text, options);
+  sendJson(response, 200, parsed);
+}
+
+function buildSummaryPrompt(context, options) {
+  return [
+    "Ты помогаешь логопеду-дефектологу выбрать итоговое логопедическое заключение.",
+    "Выбери только один вариант из списка. Не ставь новый диагноз вне списка.",
+    "Ответь строго JSON без markdown: {\"id\":\"...\",\"reason\":\"короткое объяснение\"}",
+    "",
+    "Варианты:",
+    JSON.stringify(options, null, 2),
+    "",
+    "Заполненные поля:",
+    JSON.stringify(context, null, 2)
+  ].join("\n");
+}
+
+function parseSummaryResponse(text, options) {
+  let parsed = {};
+  try {
+    parsed = JSON.parse(String(text || "").replace(/^```json\s*/i, "").replace(/```$/i, "").trim());
+  } catch {
+    parsed = {};
+  }
+
+  const selected =
+    options.find((item) => item.id === parsed.id) ||
+    options.find((item) => normalizeForCompare(text).includes(normalizeForCompare(item.label))) ||
+    options.find((item) => normalizeForCompare(text).includes(normalizeForCompare(item.text))) ||
+    options[0];
+
+  return {
+    id: selected?.id || "",
+    conclusion: selected?.text || "",
+    reason: sanitizeText(parsed.reason || selected?.label || "", 240)
+  };
 }
 
 function extractResponseText(result) {

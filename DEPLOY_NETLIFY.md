@@ -9,6 +9,7 @@ Netlify publishes only the `public` folder:
 - `public/index.html`
 - `public/styles.css`
 - `public/app.js`
+- `public/templateDocx.js`
 
 The Groq proxy runs as a Netlify Function:
 
