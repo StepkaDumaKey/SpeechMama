@@ -154,6 +154,15 @@ textarea:focus {
   display: block;
 }
 
+.smart-ghost span {
+  display: inline;
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-transform: none;
+}
+
 .ghost-current {
   color: transparent;
 }

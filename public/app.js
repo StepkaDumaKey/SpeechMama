@@ -568,14 +568,19 @@ function applySmartSuggestion(field, result) {
   const meta = field.closest(".smart-field")?.querySelector(".smart-suggestion-meta");
   const wrapper = field.closest(".smart-field");
   if (!ghost || !meta) return;
+  const preparedText = prepareSmartSuggestionText(field, result.text);
+  if (!preparedText) {
+    hideSmartSuggestion(field);
+    return;
+  }
 
   smartSuggestionState = {
     field,
-    suggestion: result.text,
+    suggestion: preparedText,
     source: result.source
   };
 
-  ghost.innerHTML = buildGhostSuggestion(field.value, result.text, field.tagName === "TEXTAREA");
+  ghost.innerHTML = buildGhostSuggestion(field.value, preparedText, field.tagName === "TEXTAREA");
   ghost.classList.add("is-visible");
   wrapper?.classList.add("has-suggestion");
   meta.textContent = `${result.source || "подсказка"} • Tab - вставить`;
@@ -628,7 +633,7 @@ function scheduleAiSuggestion(field, localResult) {
       const payload = await response.json();
       if (controller.signal.aborted || requestId !== aiSuggestionRequestId) return;
       if (document.activeElement !== field) return;
-      const text = normalizeSmartSuggestionText(field.id, payload.suggestion || "");
+      const text = prepareSmartSuggestionText(field, payload.suggestion || "");
       if (!text || normalizeForSuggest(text) === normalizeForSuggest(field.value)) return;
       applySmartSuggestion(field, {
         text,
@@ -681,14 +686,17 @@ function getBestSmartSuggestion(field) {
   const currentNormalized = normalizeForSuggest(current);
 
   const ranked = candidates
-    .map((candidate, index) => ({
-      ...candidate,
-      index,
-      text: normalizeSmartSuggestionText(field.id, candidate.text),
-      score: scoreSuggestion(candidate.text, currentNormalized, candidate.priority || 0)
-    }))
+    .map((candidate, index) => {
+      const text = prepareSmartSuggestionText(field, candidate.text);
+      return {
+        ...candidate,
+        index,
+        text,
+        score: scorePreparedSuggestion(field, text, currentNormalized, candidate.priority || 0)
+      };
+    })
     .filter((candidate) => candidate.text && normalizeForSuggest(candidate.text) !== currentNormalized)
-    .filter((candidate) => !currentNormalized || scoreSuggestion(candidate.text, currentNormalized, candidate.priority || 0) > 0)
+    .filter((candidate) => !currentNormalized || candidate.score > 0)
     .sort((a, b) => b.score - a.score || a.index - b.index);
 
   return ranked[0] || null;
@@ -731,6 +739,96 @@ function normalizeSmartSuggestionText(fieldId, text) {
     return text.replace(/\s+/g, " ").replace(/\s+([,.])/g, "$1").replace(/[.!?]+$/g, "").trim();
   }
   return normalizeSentence(text);
+}
+
+function prepareSmartSuggestionText(field, rawText) {
+  const text = normalizeSmartSuggestionText(field.id, String(rawText || ""));
+  const current = field.value.trim();
+  if (!text || !current) return text;
+  if (startsWithNormalized(text, current)) return text;
+  if (field.tagName !== "TEXTAREA") return text;
+
+  const fragmentCompletion = completeTrailingFragment(current, text);
+  if (fragmentCompletion) return fragmentCompletion;
+  return isNewTextareaParagraph(current, text) ? text : "";
+}
+
+function completeTrailingFragment(current, candidate) {
+  const fragment = trailingTextFragment(current);
+  if (!fragment || normalizeForSuggest(fragment.text).length < 8) return "";
+
+  const tail = candidateTailForFragment(candidate, fragment.text);
+  if (!tail) return "";
+  return `${current.slice(0, fragment.start)}${tail}`;
+}
+
+function trailingTextFragment(text) {
+  const value = String(text || "").replace(/\s+$/g, "");
+  if (!value || /[.!?]$/.test(value)) return null;
+
+  const delimiterIndex = Math.max(value.lastIndexOf("."), value.lastIndexOf("!"), value.lastIndexOf("?"), value.lastIndexOf("\n"));
+  const afterDelimiter = value.slice(delimiterIndex + 1);
+  const leadingSpaces = afterDelimiter.match(/^\s*/)?.[0].length || 0;
+  const fragment = afterDelimiter.slice(leadingSpaces);
+  if (!fragment.trim()) return null;
+
+  return {
+    start: delimiterIndex + 1 + leadingSpaces,
+    text: fragment
+  };
+}
+
+function candidateTailForFragment(candidate, fragment) {
+  if (startsWithNormalized(candidate, fragment)) return candidate;
+
+  const sentences = splitSuggestionSentences(candidate);
+  const index = sentences.findIndex((sentence) => startsWithNormalized(sentence, fragment));
+  return index === -1 ? "" : sentences.slice(index).join(" ");
+}
+
+function isNewTextareaParagraph(current, candidate) {
+  const candidateNormalized = normalizeForSuggest(candidate);
+  const currentNormalized = normalizeForSuggest(current);
+  if (!candidateNormalized || currentNormalized.includes(candidateNormalized)) return false;
+
+  const candidateSentences = splitSuggestionSentences(candidate);
+  if (!candidateSentences.length) return false;
+  if (candidateSentences.some((sentence) => sentenceAlreadyCovered(current, sentence))) return false;
+
+  const overlap = wordOverlapRatio(current, candidate);
+  return overlap < 0.34;
+}
+
+function sentenceAlreadyCovered(current, sentence) {
+  const normalized = normalizeForSuggest(sentence);
+  if (!normalized) return true;
+  if (normalizeForSuggest(current).includes(normalized)) return true;
+  return wordOverlapRatio(current, sentence) >= 0.58;
+}
+
+function splitSuggestionSentences(text) {
+  return String(text || "")
+    .match(/[^.!?\n]+[.!?]?/g)
+    ?.map((sentence) => sentence.replace(/\s+/g, " ").trim())
+    .filter(Boolean) || [];
+}
+
+function wordOverlapRatio(left, right) {
+  const leftWords = new Set(significantWords(left));
+  const rightWords = new Set(significantWords(right));
+  if (!rightWords.size) return 1;
+
+  let hits = 0;
+  rightWords.forEach((word) => {
+    if (leftWords.has(word)) hits += 1;
+  });
+  return hits / rightWords.size;
+}
+
+function significantWords(text) {
+  return normalizeForSuggest(text)
+    .split(" ")
+    .filter((word) => word.length > 3);
 }
 
 function getSmartSuggestionCandidates(field, data) {
@@ -818,6 +916,12 @@ function scoreSuggestion(text, currentNormalized, priority) {
   const words = currentNormalized.split(" ").filter((word) => word.length > 2);
   const hits = words.filter((word) => normalized.includes(word)).length;
   return hits ? priority + hits * 12 : 0;
+}
+
+function scorePreparedSuggestion(field, text, currentNormalized, priority) {
+  const matchedScore = scoreSuggestion(text, currentNormalized, priority);
+  if (matchedScore || !currentNormalized) return matchedScore;
+  return field.tagName === "TEXTAREA" && text ? priority : 0;
 }
 
 function buildSuggestionPreview(current, suggestion, isMultiline) {
