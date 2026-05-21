@@ -745,7 +745,13 @@ function prepareSmartSuggestionText(field, rawText) {
   const text = normalizeSmartSuggestionText(field.id, String(rawText || ""));
   const current = field.value.trim();
   if (!text || !current) return text;
-  if (startsWithNormalized(text, current)) return text;
+  if (startsWithNormalized(text, current)) {
+    const exactSuffix = text.startsWith(current) ? text.slice(current.length).trim() : "";
+    if (field.tagName === "TEXTAREA" && exactSuffix && !trailingTextFragment(current)) {
+      return isNewTextareaParagraph(current, exactSuffix) ? text : "";
+    }
+    return text;
+  }
   if (field.tagName !== "TEXTAREA") return text;
 
   const fragmentCompletion = completeTrailingFragment(current, text);
@@ -793,10 +799,42 @@ function isNewTextareaParagraph(current, candidate) {
 
   const candidateSentences = splitSuggestionSentences(candidate);
   if (!candidateSentences.length) return false;
+  if (repeatsTextareaOpening(current, candidateSentences)) return false;
   if (candidateSentences.some((sentence) => sentenceAlreadyCovered(current, sentence))) return false;
 
   const overlap = wordOverlapRatio(current, candidate);
   return overlap < 0.34;
+}
+
+function repeatsTextareaOpening(current, candidateSentences) {
+  const currentSentences = splitSuggestionSentences(current);
+  return candidateSentences.some((candidateSentence) => {
+    return currentSentences.some((currentSentence) => hasSharedSentenceStart(currentSentence, candidateSentence));
+  });
+}
+
+function hasSharedSentenceStart(left, right) {
+  const normalizedLeft = normalizeForSuggest(left);
+  const normalizedRight = normalizeForSuggest(right);
+  if (!normalizedLeft || !normalizedRight) return false;
+
+  const shorter = normalizedLeft.length <= normalizedRight.length ? normalizedLeft : normalizedRight;
+  const longer = shorter === normalizedLeft ? normalizedRight : normalizedLeft;
+  if (shorter.length >= 24 && longer.startsWith(shorter)) {
+    return true;
+  }
+
+  const leftWords = significantLeadingWords(left);
+  const rightWords = significantLeadingWords(right);
+  let shared = 0;
+  while (leftWords[shared] && leftWords[shared] === rightWords[shared]) shared += 1;
+  return shared >= 3;
+}
+
+function significantLeadingWords(text) {
+  return normalizeForSuggest(text)
+    .split(" ")
+    .filter((word) => word.length > 2);
 }
 
 function sentenceAlreadyCovered(current, sentence) {
