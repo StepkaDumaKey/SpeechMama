@@ -11,3 +11,8 @@
   from = "/api/summary"
   to = "/.netlify/functions/summary"
   status = 200
+
+[[redirects]]
+  from = "/api/dictate"
+  to = "/.netlify/functions/dictate"
+  status = 200

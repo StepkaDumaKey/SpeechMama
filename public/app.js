@@ -1,4 +1,5 @@
 const STORAGE_KEY = "speech-report-builder:v1";
+const WORKING_COPY_KEY = "speech-report-builder:working-copy:v1";
 
 const sectionDefs = [
   {
@@ -282,9 +283,11 @@ let draftDialogMode = "save";
 
 const AI_SUGGESTION_DELAY_MS = 450;
 const AI_FALLBACK_SCORE_THRESHOLD = 90;
+const DICTATION_MAX_MS = 90_000;
 const aiSuggestionTimers = new Map();
 const aiSuggestionControllers = new Map();
 let aiSuggestionRequestId = 0;
+let dictationState = emptyDictationState();
 
 const profiles = {
   blank: {
@@ -389,9 +392,9 @@ function init() {
   renderSections();
   renderRecommendations();
   setupSmartSuggestions();
+  setupDictationControls();
   bindEvents();
-  setInitialDates();
-  resetReport();
+  if (!restoreWorkingCopy()) resetReport();
   refreshDraftSelect();
   updateAssistant([
     {
@@ -459,8 +462,12 @@ function bindEvents() {
 
   $("#addRecommendationBtn").addEventListener("click", addCustomRecommendation);
   $("#summaryBtn").addEventListener("click", suggestConclusionSummary);
+  $("#dictateReportBtn").addEventListener("click", () => toggleDictation($("#dictateReportBtn"), null));
   $("#saveDraftBtn").addEventListener("click", saveDraft);
   $("#newReportBtn").addEventListener("click", startNewReport);
+  $("#draftSelect").addEventListener("change", (event) => {
+    if (event.target.value) loadSelectedDraft();
+  });
   $("#loadDraftBtn").addEventListener("click", loadSelectedDraft);
   $("#deleteDraftBtn").addEventListener("click", deleteSelectedDraft);
   $("#copyBtn").addEventListener("click", copyDocumentText);
@@ -478,6 +485,7 @@ function bindEvents() {
   document.addEventListener("input", (event) => {
     if (event.target.closest(".app-shell")) {
       updatePreview();
+      saveWorkingCopy();
       if (isSmartField(event.target)) updateSmartSuggestion(event.target);
     }
   });
@@ -485,9 +493,247 @@ function bindEvents() {
   document.addEventListener("change", (event) => {
     if (event.target.closest(".app-shell")) {
       updatePreview();
+      saveWorkingCopy();
       if (isSmartField(event.target)) updateSmartSuggestion(event.target);
     }
   });
+}
+
+function setupDictationControls() {
+  getDictationFields().forEach((field) => {
+    if (field.closest(".dictation-wrap")?.querySelector(".dictate-field-btn")) return;
+    const wrapper = ensureDictationWrap(field);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "dictate-field-btn";
+    button.title = "Наговорить для этого поля";
+    button.setAttribute("aria-label", `Наговорить: ${getFieldLabel(field)}`);
+    button.innerHTML = micIconHtml();
+    button.addEventListener("click", () => toggleDictation(button, field));
+    wrapper.appendChild(button);
+    field.classList.add("dictation-target");
+  });
+}
+
+function getDictationFields() {
+  const selectors = [
+    "#childName",
+    "#reason",
+    "#anamnesis",
+    "#specialist",
+    "#conclusion",
+    "#customRecommendation",
+    ...sectionDefs.map((section) => `#section-${section.id}`)
+  ];
+  return selectors.map((selector) => $(selector)).filter(Boolean);
+}
+
+function ensureDictationWrap(field) {
+  const smartWrapper = field.closest(".smart-field");
+  if (smartWrapper) {
+    smartWrapper.classList.add("dictation-wrap");
+    return smartWrapper;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "dictation-wrap";
+  field.parentNode.insertBefore(wrapper, field);
+  wrapper.appendChild(field);
+  return wrapper;
+}
+
+function micIconHtml() {
+  return `<span class="mic-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none">
+      <path d="M12 15a4 4 0 0 0 4-4V7a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4Z" />
+      <path d="M19 11a7 7 0 0 1-14 0" />
+      <path d="M12 18v4" />
+      <path d="M8 22h8" />
+    </svg>
+  </span>`;
+}
+
+function emptyDictationState() {
+  return {
+    recorder: null,
+    stream: null,
+    chunks: [],
+    button: null,
+    field: null,
+    stopTimer: null
+  };
+}
+
+async function toggleDictation(button, field) {
+  if (dictationState.recorder) {
+    if (dictationState.button !== button) {
+      toast("Сначала остановите текущую запись");
+      return;
+    }
+    stopDictation();
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    toast("Этот браузер не поддерживает запись голоса");
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = preferredRecordingMimeType();
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const chunks = [];
+
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data?.size) chunks.push(event.data);
+    });
+    recorder.addEventListener("stop", () => finishDictationRecording(button, field, chunks, recorder.mimeType));
+
+    dictationState = {
+      recorder,
+      stream,
+      chunks,
+      button,
+      field,
+      stopTimer: window.setTimeout(stopDictation, DICTATION_MAX_MS)
+    };
+
+    setDictationButtonState(button, "recording");
+    recorder.start();
+    toast(field ? "Запись для поля началась" : "Диктовка заключения началась");
+  } catch (error) {
+    console.warn("Microphone access failed", error);
+    toast("Не удалось получить доступ к микрофону");
+  }
+}
+
+function preferredRecordingMimeType() {
+  return ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find((mimeType) => {
+    return MediaRecorder.isTypeSupported(mimeType);
+  });
+}
+
+function stopDictation() {
+  if (!dictationState.recorder) return;
+  window.clearTimeout(dictationState.stopTimer);
+  if (dictationState.recorder.state !== "inactive") {
+    dictationState.recorder.stop();
+  }
+}
+
+async function finishDictationRecording(button, field, chunks, mimeType) {
+  const stream = dictationState.stream;
+  dictationState = emptyDictationState();
+  stream?.getTracks().forEach((track) => track.stop());
+  setDictationButtonState(button, "busy");
+
+  try {
+    const audio = new Blob(chunks, { type: mimeType || "audio/webm" });
+    if (!audio.size) throw new Error("Empty audio");
+    const payload = await requestDictationSummary(audio, field);
+    if (field) {
+      appendDictationText(field, payload.text || "");
+      toast(payload.text ? "Диктовка добавлена в поле" : "Не удалось выделить текст для поля");
+    } else {
+      const inserted = applyReportDictation(payload.fields || {});
+      toast(inserted ? "Диктовка разложена по полям" : "Не удалось разложить диктовку по полям");
+    }
+  } catch (error) {
+    console.warn("Dictation failed", error);
+    toast("Диктовка не обработалась");
+  } finally {
+    setDictationButtonState(button, "idle");
+  }
+}
+
+async function requestDictationSummary(audio, field) {
+  const response = await fetch("/api/dictate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      audioBase64: await blobToBase64(audio),
+      mimeType: audio.type || "audio/webm",
+      scope: field ? "field" : "report",
+      field: field?.id || "",
+      label: field ? getFieldLabel(field) : "Все заключение",
+      value: field?.value || "",
+      context: collectAiContext()
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "Dictation request failed");
+  return payload;
+}
+
+async function blobToBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 16_384) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 16_384));
+  }
+  return btoa(binary);
+}
+
+function setDictationButtonState(button, state) {
+  button.classList.toggle("is-recording", state === "recording");
+  button.classList.toggle("is-dictating", state === "busy");
+  button.disabled = state === "busy";
+  button.setAttribute("aria-pressed", state === "recording" ? "true" : "false");
+  button.title =
+    state === "recording"
+      ? "Остановить запись"
+      : state === "busy"
+        ? "Обрабатываю диктовку"
+        : button.id === "dictateReportBtn"
+          ? "Наговорить для всего заключения"
+          : "Наговорить для этого поля";
+}
+
+function appendDictationText(field, text) {
+  const cleanText = normalizeDictationText(field, text);
+  if (!cleanText) return false;
+  const current = field.value.trim();
+  const separator = field.tagName === "TEXTAREA" ? "\n" : " ";
+  field.value = current ? `${current}${separator}${cleanText}` : cleanText;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  moveCaretToEnd(field);
+  return true;
+}
+
+function normalizeDictationText(field, text) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  return field.id === "reason" ? clean.replace(/[.!?]+$/g, "") : normalizeSentence(clean);
+}
+
+function applyReportDictation(fields) {
+  let inserted = false;
+  if (fields.reason) inserted = appendDictationText($("#reason"), fields.reason) || inserted;
+  if (fields.anamnesis) inserted = appendDictationText($("#anamnesis"), fields.anamnesis) || inserted;
+  if (fields.conclusion) inserted = appendDictationText($("#conclusion"), fields.conclusion) || inserted;
+
+  Object.entries(fields.sections || {}).forEach(([sectionId, text]) => {
+    const field = $(`#section-${sectionId}`);
+    if (field && text) inserted = appendDictationText(field, text) || inserted;
+  });
+
+  (fields.recommendations || []).forEach((text) => {
+    const recommendation = normalizeSentence(text);
+    if (!recommendation) return;
+    if (!recommendationBank.includes(recommendation)) recommendationBank.push(recommendation);
+    inserted = true;
+  });
+
+  if ((fields.recommendations || []).length) {
+    const selected = new Set(collectForm().recommendations);
+    fields.recommendations.map((text) => normalizeSentence(text)).filter(Boolean).forEach((text) => selected.add(text));
+    renderRecommendations();
+    setRecommendationChecks([...selected]);
+    updatePreview();
+  }
+
+  return inserted;
 }
 
 function setupSmartSuggestions() {
@@ -1068,6 +1314,7 @@ function resetReport() {
   setRecommendationChecks(profile.recommendations || []);
   setInitialDates();
   updatePreview();
+  clearWorkingCopy();
 }
 
 function insertTemplate(sectionId) {
@@ -1159,6 +1406,7 @@ function applyDraft(draft) {
   $("#conclusionPreset").value = conclusion ? conclusion.id : "";
   setRecommendationChecks(draft.recommendations || []);
   updatePreview();
+  saveWorkingCopy();
 }
 
 function updatePreview() {
@@ -1328,6 +1576,10 @@ function buildPlainText(data) {
 
 function saveDraft() {
   const data = collectForm();
+  if (!hasReportContent(data)) {
+    toast("Сначала заполните бланк");
+    return;
+  }
   openDraftDialog("save", data);
 }
 
@@ -1404,14 +1656,16 @@ function normalizeDraftTitle(title, data) {
 }
 
 function hasReportContent(data) {
+  const sections = data.sections && typeof data.sections === "object" ? data.sections : {};
+  const recommendations = Array.isArray(data.recommendations) ? data.recommendations : [];
   return Boolean(
     data.childName ||
       data.birthDate ||
       data.reason ||
       (data.anamnesis && data.anamnesis !== profiles.blank.anamnesis) ||
-      Object.values(data.sections).some(Boolean) ||
+      Object.values(sections).some(Boolean) ||
       data.conclusion ||
-      data.recommendations.length
+      recommendations.length
   );
 }
 
@@ -1420,6 +1674,10 @@ function loadSelectedDraft() {
   if (!key) return;
   const drafts = readDrafts();
   if (drafts[key]) {
+    if (!hasReportContent(drafts[key])) {
+      toast("В этом черновике нет сохраненного текста");
+      return;
+    }
     applyDraft(drafts[key]);
     toast("Черновик открыт");
   }
@@ -1445,6 +1703,38 @@ function readDrafts() {
 
 function writeDrafts(drafts) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
+}
+
+function saveWorkingCopy() {
+  const data = collectForm();
+  if (!hasReportContent(data)) {
+    clearWorkingCopy();
+    return;
+  }
+  localStorage.setItem(
+    WORKING_COPY_KEY,
+    JSON.stringify({
+      ...data,
+      savedAt: new Date().toISOString()
+    })
+  );
+}
+
+function restoreWorkingCopy() {
+  try {
+    const draft = JSON.parse(localStorage.getItem(WORKING_COPY_KEY) || "null");
+    if (!draft || !hasReportContent(draft)) return false;
+    applyDraft(draft);
+    setInitialDates();
+    updatePreview();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearWorkingCopy() {
+  localStorage.removeItem(WORKING_COPY_KEY);
 }
 
 function refreshDraftSelect(selectedKey = "") {
