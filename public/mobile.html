@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Диктовка заключения</title>
+    <link rel="stylesheet" href="./mobile.css" />
+  </head>
+  <body>
+    <main class="mobile-shell">
+      <section class="mobile-panel">
+        <p class="eyebrow">Диктовка с телефона</p>
+        <h1 id="mobileTitle">Готовлю микрофон</h1>
+        <p id="mobileHint" class="mobile-hint"></p>
+        <button id="mobileRecordBtn" class="record-btn" type="button" disabled>
+          <span class="mobile-mic" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 15a4 4 0 0 0 4-4V7a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4Z" />
+              <path d="M19 11a7 7 0 0 1-14 0" />
+              <path d="M12 18v4" />
+              <path d="M8 22h8" />
+            </svg>
+          </span>
+          <span id="mobileRecordText">Начать запись</span>
+        </button>
+        <p id="mobileStatus" class="mobile-status"></p>
+      </section>
+    </main>
+    <script src="./mobile.js"></script>
+  </body>
+</html>

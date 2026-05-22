@@ -288,6 +288,7 @@ const aiSuggestionTimers = new Map();
 const aiSuggestionControllers = new Map();
 let aiSuggestionRequestId = 0;
 let dictationState = emptyDictationState();
+let mobileDictationState = emptyMobileDictationState();
 
 const profiles = {
   blank: {
@@ -463,6 +464,7 @@ function bindEvents() {
   $("#addRecommendationBtn").addEventListener("click", addCustomRecommendation);
   $("#summaryBtn").addEventListener("click", suggestConclusionSummary);
   $("#dictateReportBtn").addEventListener("click", () => toggleDictation($("#dictateReportBtn"), null));
+  $("#phoneReportBtn").addEventListener("click", () => openMobileDictation(null));
   $("#saveDraftBtn").addEventListener("click", saveDraft);
   $("#newReportBtn").addEventListener("click", startNewReport);
   $("#draftSelect").addEventListener("change", (event) => {
@@ -476,6 +478,8 @@ function bindEvents() {
   $("#checkBtn").addEventListener("click", runChecks);
   $("#polishBtn").addEventListener("click", polishAll);
   $("#draftDialog").addEventListener("close", finishDraftDialog);
+  $("#mobileDictationDialog").addEventListener("close", stopMobileDictationPolling);
+  $("#copyMobileLinkBtn").addEventListener("click", copyMobileDictationLink);
   $("#draftTitleInput").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     event.preventDefault();
@@ -511,6 +515,14 @@ function setupDictationControls() {
     button.innerHTML = micIconHtml();
     button.addEventListener("click", () => toggleDictation(button, field));
     wrapper.appendChild(button);
+    const phoneButton = document.createElement("button");
+    phoneButton.type = "button";
+    phoneButton.className = "phone-field-btn";
+    phoneButton.title = "Наговорить с телефона";
+    phoneButton.setAttribute("aria-label", `Наговорить с телефона: ${getFieldLabel(field)}`);
+    phoneButton.innerHTML = phoneIconHtml();
+    phoneButton.addEventListener("click", () => openMobileDictation(field));
+    wrapper.appendChild(phoneButton);
     field.classList.add("dictation-target");
   });
 }
@@ -553,6 +565,15 @@ function micIconHtml() {
   </span>`;
 }
 
+function phoneIconHtml() {
+  return `<span class="phone-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none">
+      <rect x="7" y="2.75" width="10" height="18.5" rx="2.2" />
+      <path d="M10 18h4" />
+    </svg>
+  </span>`;
+}
+
 function emptyDictationState() {
   return {
     recorder: null,
@@ -562,6 +583,106 @@ function emptyDictationState() {
     field: null,
     stopTimer: null
   };
+}
+
+function emptyMobileDictationState() {
+  return {
+    id: "",
+    scope: "",
+    field: null,
+    pollTimer: null,
+    applied: false
+  };
+}
+
+async function openMobileDictation(field) {
+  stopMobileDictationPolling();
+  const dialog = $("#mobileDictationDialog");
+  const scope = field ? "field" : "report";
+  $("#mobileDictationTitle").textContent = field ? "Диктовка поля с телефона" : "Диктовка заключения с телефона";
+  $("#mobileDictationText").textContent = field
+    ? `Откройте ссылку на телефоне и наговорите для поля «${getFieldLabel(field)}».`
+    : "Откройте ссылку на телефоне и наговорите заметки для всего заключения.";
+  $("#mobileDictationStatus").textContent = "Создаю временную ссылку...";
+  $("#mobileDictationLink").value = "";
+  $("#mobileQr").removeAttribute("src");
+  dialog.returnValue = "";
+  dialog.showModal();
+
+  try {
+    const response = await fetch("/api/mobile-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "create",
+        scope,
+        field: field?.id || "",
+        label: field ? getFieldLabel(field) : "Все заключение",
+        value: field?.value || "",
+        context: collectAiContext()
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.id) throw new Error(payload.error || "Mobile session failed");
+
+    const url = new URL("./mobile.html", window.location.href);
+    url.searchParams.set("session", payload.id);
+    $("#mobileDictationLink").value = url.toString();
+    $("#mobileQr").src = `/api/mobile-session?action=qr&url=${encodeURIComponent(url.toString())}`;
+    $("#mobileDictationStatus").textContent = "Жду диктовку с телефона.";
+    mobileDictationState = { id: payload.id, scope, field, pollTimer: null, applied: false };
+    pollMobileDictation();
+    mobileDictationState.pollTimer = window.setInterval(pollMobileDictation, 2500);
+  } catch (error) {
+    console.warn("Mobile dictation session failed", error);
+    $("#mobileDictationStatus").textContent = "Не удалось создать ссылку для телефона.";
+  }
+}
+
+async function pollMobileDictation() {
+  if (!mobileDictationState.id || mobileDictationState.applied) return;
+  try {
+    const response = await fetch(`/api/mobile-session?id=${encodeURIComponent(mobileDictationState.id)}&role=desktop`, {
+      headers: { "Cache-Control": "no-store" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (response.status === 410) {
+      $("#mobileDictationStatus").textContent = "Ссылка истекла. Создайте новую.";
+      stopMobileDictationPolling();
+      return;
+    }
+    if (!response.ok || payload.status !== "ready") return;
+
+    const inserted =
+      mobileDictationState.scope === "field"
+        ? appendDictationText(mobileDictationState.field, payload.result?.text || "")
+        : applyReportDictation(payload.result?.fields || {});
+    mobileDictationState.applied = true;
+    stopMobileDictationPolling();
+    $("#mobileDictationStatus").textContent = inserted
+      ? "Диктовка получена и вставлена в бланк."
+      : "Диктовка пришла, но для полей не нашлось текста.";
+    toast(inserted ? "Диктовка с телефона вставлена" : "Диктовка с телефона получена");
+  } catch (error) {
+    console.warn("Mobile dictation poll failed", error);
+  }
+}
+
+function stopMobileDictationPolling() {
+  window.clearInterval(mobileDictationState.pollTimer);
+  mobileDictationState.pollTimer = null;
+}
+
+async function copyMobileDictationLink() {
+  const link = $("#mobileDictationLink").value;
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+    $("#mobileDictationStatus").textContent = "Ссылка скопирована.";
+  } catch {
+    $("#mobileDictationLink").select();
+    toast("Ссылка выделена для копирования");
+  }
 }
 
 async function toggleDictation(button, field) {
@@ -1295,6 +1416,7 @@ function setInitialDates() {
 
 function resetReport() {
   const profile = profiles.blank;
+  stopMobileDictationPolling();
   if ($("#draftSelect")) $("#draftSelect").value = "";
   $("#childName").value = "";
   $("#birthDate").value = "";

@@ -16,3 +16,8 @@
   from = "/api/dictate"
   to = "/.netlify/functions/dictate"
   status = 200
+
+[[redirects]]
+  from = "/api/mobile-session"
+  to = "/.netlify/functions/mobile-session"
+  status = 200

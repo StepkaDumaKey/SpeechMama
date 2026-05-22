@@ -86,6 +86,14 @@
               </span>
               <span>Наговорить</span>
             </button>
+            <button id="phoneReportBtn" class="phone-main-btn secondary" type="button" aria-label="Открыть диктовку на телефоне" title="Открыть диктовку на телефоне">
+              <span class="phone-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <rect x="7" y="2.75" width="10" height="18.5" rx="2.2" />
+                  <path d="M10 18h4" />
+                </svg>
+              </span>
+            </button>
           </div>
 
           <div id="sections" class="sections"></div>
@@ -143,6 +151,25 @@
           <button id="draftSkipBtn" value="skip" class="secondary" hidden>Не сохранять</button>
           <button id="draftConfirmBtn" value="save" class="primary">Сохранить</button>
         </div>
+      </form>
+    </dialog>
+
+    <dialog id="mobileDictationDialog" class="mobile-link-dialog" aria-labelledby="mobileDictationTitle">
+      <form method="dialog" class="mobile-link-body">
+        <div class="panel-title-row">
+          <h2 id="mobileDictationTitle">Диктовка с телефона</h2>
+          <button value="cancel" class="ghost small" aria-label="Закрыть">Закрыть</button>
+        </div>
+        <p id="mobileDictationText" class="draft-dialog-text"></p>
+        <img id="mobileQr" class="mobile-qr" alt="QR-код для диктовки с телефона" />
+        <label>
+          <span>Ссылка для телефона</span>
+          <div class="mobile-link-row">
+            <input id="mobileDictationLink" readonly />
+            <button id="copyMobileLinkBtn" class="secondary" type="button">Копировать</button>
+          </div>
+        </label>
+        <p id="mobileDictationStatus" class="mobile-status"></p>
       </form>
     </dialog>
 
