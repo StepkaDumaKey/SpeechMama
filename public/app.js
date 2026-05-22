@@ -278,6 +278,7 @@ let smartSuggestionState = {
   suggestion: null,
   source: ""
 };
+let draftDialogMode = "save";
 
 const AI_SUGGESTION_DELAY_MS = 450;
 const AI_FALLBACK_SCORE_THRESHOLD = 90;
@@ -384,29 +385,21 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 function init() {
-  renderProfiles();
   renderConclusionPresets();
   renderSections();
   renderRecommendations();
   setupSmartSuggestions();
   bindEvents();
   setInitialDates();
-  applyProfile("blank");
+  resetReport();
   refreshDraftSelect();
   updateAssistant([
     {
       type: "info",
-      text: "Выберите профиль и заполняйте свободные поля. Когда рядом появляется подсказка, нажмите Tab, чтобы вставить ее."
+      text: "Заполняйте поля заключения. Когда рядом появляется подсказка, нажмите Tab, чтобы вставить ее."
     }
   ]);
   updatePreview();
-}
-
-function renderProfiles() {
-  const select = $("#profile");
-  select.innerHTML = Object.entries(profiles)
-    .map(([id, profile]) => `<option value="${id}">${escapeHtml(profile.label)}</option>`)
-    .join("");
 }
 
 function renderConclusionPresets() {
@@ -448,7 +441,6 @@ function renderRecommendations() {
 }
 
 function bindEvents() {
-  $("#profile").addEventListener("change", (event) => applyProfile(event.target.value));
   $("#conclusionPreset").addEventListener("change", (event) => {
     const selected = conclusionOptions.find((item) => item.id === event.target.value);
     if (selected) {
@@ -468,6 +460,7 @@ function bindEvents() {
   $("#addRecommendationBtn").addEventListener("click", addCustomRecommendation);
   $("#summaryBtn").addEventListener("click", suggestConclusionSummary);
   $("#saveDraftBtn").addEventListener("click", saveDraft);
+  $("#newReportBtn").addEventListener("click", startNewReport);
   $("#loadDraftBtn").addEventListener("click", loadSelectedDraft);
   $("#deleteDraftBtn").addEventListener("click", deleteSelectedDraft);
   $("#copyBtn").addEventListener("click", copyDocumentText);
@@ -475,6 +468,12 @@ function bindEvents() {
   $("#pdfBtn").addEventListener("click", () => window.print());
   $("#checkBtn").addEventListener("click", runChecks);
   $("#polishBtn").addEventListener("click", polishAll);
+  $("#draftDialog").addEventListener("close", finishDraftDialog);
+  $("#draftTitleInput").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    $("#draftDialog").close("save");
+  });
 
   document.addEventListener("input", (event) => {
     if (event.target.closest(".app-shell")) {
@@ -712,7 +711,7 @@ function collectAiContext() {
   });
 
   return {
-    profile: profiles[data.profile]?.label || "",
+    profile: profiles.blank.label,
     reason: data.reason,
     anamnesis: data.anamnesis,
     conclusion: data.conclusion,
@@ -872,20 +871,20 @@ function significantWords(text) {
 function getSmartSuggestionCandidates(field, data) {
   const id = field.id;
   const candidates = [];
-  const profile = profiles[data.profile] || profiles.blank;
+  const profile = profiles.blank;
 
   const add = (text, source, priority = 0) => {
     if (text) candidates.push({ text, source, priority });
   };
 
   if (id === "reason") {
-    add(profile.reason, "из выбранного профиля", 35);
+    add(profile.reason, "из бланка", 35);
     smartSuggestionSources.reason.forEach((text) => add(text, "из базы обращений", 20));
   } else if (id === "anamnesis") {
-    add(profile.anamnesis, "из выбранного профиля", 35);
+    add(profile.anamnesis, "из бланка", 35);
     smartSuggestionSources.anamnesis.forEach((text) => add(text, "по типовым анамнестическим данным", 18));
   } else if (id === "conclusion") {
-    add(profile.conclusion, "из выбранного профиля", 35);
+    add(profile.conclusion, "из бланка", 35);
     smartSuggestionSources.conclusion.forEach((text) => add(text, "из вариантов заключения", 22));
   } else if (id === "customRecommendation") {
     recommendationBank.forEach((text) => add(text, "из банка рекомендаций", 20));
@@ -893,7 +892,7 @@ function getSmartSuggestionCandidates(field, data) {
   } else if (id.startsWith("section-")) {
     const sectionId = id.replace("section-", "");
     const section = sectionDefs.find((item) => item.id === sectionId);
-    add(profile.sections?.[sectionId], "из выбранного профиля", 35);
+    add(profile.sections?.[sectionId], "из бланка", 35);
     section?.options.forEach((text) => add(text, "из предыдущих заключений", 21));
     getContextSectionSuggestions(sectionId, data).forEach((text) => add(text, "по заполненным полям", 30));
   }
@@ -1048,11 +1047,16 @@ function setInitialDates() {
   }
 }
 
-function applyProfile(profileId) {
-  const profile = profiles[profileId] || profiles.blank;
-  $("#profile").value = profileId;
+function resetReport() {
+  const profile = profiles.blank;
+  if ($("#draftSelect")) $("#draftSelect").value = "";
+  $("#childName").value = "";
+  $("#birthDate").value = "";
+  $("#diagnosisDate").value = "";
+  $("#gender").value = "male";
   $("#reason").value = profile.reason || "";
   $("#anamnesis").value = profile.anamnesis || "";
+  $("#specialist").value = "Потапова Ирина Александровна";
 
   sectionDefs.forEach((section) => {
     $(`#section-${section.id}`).value = profile.sections[section.id] || "";
@@ -1062,6 +1066,7 @@ function applyProfile(profileId) {
   const conclusion = conclusionOptions.find((item) => item.text === profile.conclusion);
   $("#conclusionPreset").value = conclusion ? conclusion.id : "";
   setRecommendationChecks(profile.recommendations || []);
+  setInitialDates();
   updatePreview();
 }
 
@@ -1075,7 +1080,7 @@ function insertTemplate(sectionId) {
 }
 
 function suggestSection(sectionId) {
-  const profile = profiles[$("#profile").value] || profiles.blank;
+  const profile = profiles.blank;
   const current = $(`#section-${sectionId}`).value.trim();
   const fromProfile = profile.sections[sectionId];
 
@@ -1122,7 +1127,7 @@ function collectForm() {
   });
 
   return {
-    profile: $("#profile").value,
+    profile: "blank",
     childName: $("#childName").value.trim(),
     birthDate: $("#birthDate").value,
     diagnosisDate: $("#diagnosisDate").value,
@@ -1137,7 +1142,6 @@ function collectForm() {
 }
 
 function applyDraft(draft) {
-  $("#profile").value = draft.profile || "blank";
   $("#childName").value = draft.childName || "";
   $("#birthDate").value = draft.birthDate || "";
   $("#diagnosisDate").value = draft.diagnosisDate || "";
@@ -1324,20 +1328,91 @@ function buildPlainText(data) {
 
 function saveDraft() {
   const data = collectForm();
-  const key = saveDraftData(data);
-  refreshDraftSelect(key);
-  toast("Черновик сохранен");
+  openDraftDialog("save", data);
 }
 
-function saveDraftData(data) {
+function saveDraftData(data, title = defaultDraftTitle(data)) {
   const drafts = readDrafts();
-  const key = makeDraftKey(data);
+  const cleanTitle = normalizeDraftTitle(title, data);
+  const key = makeDraftKey(data, cleanTitle);
   drafts[key] = {
     ...data,
+    title: cleanTitle,
     savedAt: new Date().toISOString()
   };
   writeDrafts(drafts);
   return key;
+}
+
+function startNewReport() {
+  const data = collectForm();
+  if (!hasReportContent(data)) {
+    resetReport();
+    toast("Открыт новый бланк");
+    return;
+  }
+  openDraftDialog("new", data);
+}
+
+function openDraftDialog(mode, data) {
+  draftDialogMode = mode;
+  const dialog = $("#draftDialog");
+  const titleInput = $("#draftTitleInput");
+  $("#draftDialogTitle").textContent = mode === "new" ? "Новое заключение" : "Сохранить черновик";
+  $("#draftDialogText").textContent =
+    mode === "new"
+      ? "Сохранить набранное перед новым заключением?"
+      : "Назовите черновик, чтобы потом быстро его найти.";
+  $("#draftConfirmBtn").textContent = mode === "new" ? "Сохранить и начать" : "Сохранить";
+  $("#draftSkipBtn").hidden = mode !== "new";
+  titleInput.value = draftTitleForDialog(data);
+  dialog.returnValue = "";
+  dialog.showModal();
+  titleInput.focus();
+  titleInput.select();
+}
+
+function finishDraftDialog(event) {
+  const result = event.target.returnValue;
+  const mode = draftDialogMode;
+  if (result !== "save" && result !== "skip") return;
+
+  if (result === "save") {
+    const data = collectForm();
+    const key = saveDraftData(data, $("#draftTitleInput").value);
+    refreshDraftSelect(key);
+    toast("Черновик сохранен");
+  }
+
+  if (mode === "new") {
+    resetReport();
+    toast(result === "save" ? "Открыто новое заключение" : "Открыт новый бланк");
+  }
+}
+
+function draftTitleForDialog(data) {
+  const selectedDraft = readDrafts()[$("#draftSelect").value];
+  return selectedDraft?.title || defaultDraftTitle(data);
+}
+
+function defaultDraftTitle(data) {
+  return data.childName || "Без имени";
+}
+
+function normalizeDraftTitle(title, data) {
+  return String(title || "").replace(/\s+/g, " ").trim() || defaultDraftTitle(data);
+}
+
+function hasReportContent(data) {
+  return Boolean(
+    data.childName ||
+      data.birthDate ||
+      data.reason ||
+      (data.anamnesis && data.anamnesis !== profiles.blank.anamnesis) ||
+      Object.values(data.sections).some(Boolean) ||
+      data.conclusion ||
+      data.recommendations.length
+  );
 }
 
 function loadSelectedDraft() {
@@ -1382,7 +1457,7 @@ function refreshDraftSelect(selectedKey = "") {
     `<option value="">Черновики</option>` +
     entries
       .map(([key, draft]) => {
-        const label = `${draft.childName || "Без имени"} ${draft.diagnosisDate ? formatDate(draft.diagnosisDate) : ""}`;
+        const label = `${draft.title || draft.childName || "Без имени"} ${draft.diagnosisDate ? formatDate(draft.diagnosisDate) : ""}`;
         return `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`;
       })
       .join("");
@@ -1390,8 +1465,8 @@ function refreshDraftSelect(selectedKey = "") {
   $("#draftSelect").value = selectedKey;
 }
 
-function makeDraftKey(data) {
-  const safeName = data.childName || "Без имени";
+function makeDraftKey(data, title = defaultDraftTitle(data)) {
+  const safeName = normalizeDraftTitle(title, data);
   const date = data.diagnosisDate || new Date().toISOString().slice(0, 10);
   return `${safeName}__${date}`.toLowerCase();
 }
@@ -1590,8 +1665,6 @@ function escapeXml(value) {
 function exportDocx() {
   const data = collectForm();
   const docxBlob = createDocxBlob(data);
-  saveDraftData(data);
-  refreshDraftSelect(makeDraftKey(data));
   const link = document.createElement("a");
   link.href = URL.createObjectURL(docxBlob);
   link.download = `${getFileBaseName(data)}.docx`;

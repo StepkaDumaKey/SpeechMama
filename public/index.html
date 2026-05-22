@@ -26,7 +26,7 @@
           <div class="panel identity-panel">
             <div class="panel-title-row">
               <h2>Карточка</h2>
-              <select id="profile" aria-label="Профиль заключения"></select>
+              <button id="newReportBtn" class="secondary">Новое заключение</button>
             </div>
             <div class="form-grid">
               <label>
@@ -115,6 +115,22 @@
         </aside>
       </main>
     </div>
+
+    <dialog id="draftDialog" class="draft-dialog" aria-labelledby="draftDialogTitle">
+      <form method="dialog" class="draft-dialog-body">
+        <h2 id="draftDialogTitle">Сохранить черновик</h2>
+        <p id="draftDialogText" class="draft-dialog-text"></p>
+        <label>
+          <span>Название черновика</span>
+          <input id="draftTitleInput" autocomplete="off" />
+        </label>
+        <div class="draft-dialog-actions">
+          <button id="draftCancelBtn" value="cancel" class="ghost">Отмена</button>
+          <button id="draftSkipBtn" value="skip" class="secondary" hidden>Не сохранять</button>
+          <button id="draftConfirmBtn" value="save" class="primary">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="./templateDocx.js"></script>
     <script src="./app.js"></script>
